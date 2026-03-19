@@ -10,7 +10,6 @@ Your browser does not support the HTML canvas tag.
 <script>
 
 
-// Simple vector in 3D with numbers for x, y and z
 class Vec3
 {
     constructor (x, y, z)
@@ -20,35 +19,47 @@ class Vec3
         this.z = z
     }
 
-    // Add other vector to this one and return the result
     add(other)
     {
         return new Vec3(this.x + other.x, this.y + other.y, this.z + other.z)
     }
 
-    // Subtract other vector from this one and return the result
-    minus(other){}
+    minus(other)
+    {
+        return new Vec3(this.x - other.x, this.y - other.y, this.z - other.z)
+    }
 
-    // Multiply other vector by this one and return the result
-    multiply(other){}
+    multiply(other)
+    {
+        return new Vec3(this.x * other.x, this.y * other.y, this.z * other.z)
+    }
 
-    // Scale this vector by the number scalar and return the result
-    scale(scalar){}
+    scale(scalar)
+    {
+        return new Vec3(this.x * scalar, this.y * scalar, this.z * scalar)
+    }
     
-    // Calculate the dot product of this vector with the other and return the result
-    dot(other) {}
+    dot(other)
+    {
+        return this.x*other.x + this.y*other.y + this.z*other.z
+    }
 
-    // Calculate and return the magnitude of this vector
-    magnitude() {}
+    magnitude()
+    {
+        return Math.sqrt(this.magnitudeSquared())
+    }
     
-    // Calculate and return the magnitude of this vector without the square root
-    magnitudeSquared() {}
+    magnitudeSquared()
+    {
+        return this.dot(this)
+    }
 
-    // Return a normalised version of this vector
-    normalised() {}
+    normalised()
+    {
+        return this.scale(1 / this.magnitude())
+    }
 }
 
-// A sphere in 3D space. Has centre, radius and colour all of which are Vec3s
 class Sphere
 {
     constructor (centre, radius, colour)
@@ -58,14 +69,18 @@ class Sphere
         this.colour = colour
     }
 
-    // Calculate the point on the sphere  where the ray intersects using 
-    // a quadratic equation and return the t value of the ray for that point
-    // If two solutions exist return the minus solution
-    // If no solutions exist return -1
-    rayIntersects(ray)  {}
+    rayIntersects(ray)
+    {
+        let oc = ray.origin.minus(this.centre)
+        let a = ray.direction.dot(ray.direction)
+        let b = 2.0 * oc.dot(ray.direction)
+        let c = oc.dot(oc) - this.radius * this.radius
+        let discriminant = b*b - 4*a*c
+        if (discriminant < 0) return -1
+        return (-b - Math.sqrt(b*b - 4*a*c)) / (2*a)
+    }
 }
 
-// Ray which has an origin and direction, both are Vec3s
 class Ray
 {
     constructor (origin, direction)
@@ -74,15 +89,12 @@ class Ray
         this.direction = direction
     }
 
-    // Calculate and return the point in space (a Vec3) for this ray for the given value of t
-    pointAt(t) {}
+    pointAt(t)
+    {
+        return this.origin.add(this.direction.scale(t))
+    }
 }
 
-// The result of casting a ray into our scene
-// Position is the point where the ray intersects a sphere in the scene
-// Normal is the normal unit vector of the sphere at the intersection point
-// t is the t value along the ray where the intersection point is.  This value should, be -1 when the ray hits nothing
-// SphereIndex is the array index of the sphere hit by the ray
 class RayCastResult
 {
     constructor(position, normal, t, sphereIndex)
@@ -94,36 +106,71 @@ class RayCastResult
     }
 }
 
-// Calculate the intersection point and normal when a ray hits a sphere. Returns a RayCastResult.
-function hit(ray, t, sphereIndex) {}
+function hit(ray, t, sphereIndex)
+{
+    let intersectionPoint = ray.pointAt(t)
+    let intersectionNormal = intersectionPoint.minus(spheres[sphereIndex].centre).normalised()
+    return new RayCastResult(intersectionPoint, intersectionNormal, t, sphereIndex)
+}
 
-// Return a RayCastResult when a ray misses everything in the scene
 function miss()
 {
     return new RayCastResult(new Vec3(0,0,0), new Vec3(0,0,0), -1, -1)
 }
 
-// Check whether a ray hits anything in the scene and return a RayCast Result
 function traceRay(ray)
 {
-    return miss()
+    let t = 100000000
+    let closestSphereIndex = -1
+
+    for (let i =0; i < spheres.length; i++){
+        let current_t = spheres[i].rayIntersects(ray)
+        if(current_t > 0 && current_t < t){
+            t = current_t
+            closestSphereIndex = i
+        }
+    }
+
+    if(closestSphereIndex < 0) return miss()
+
+    return hit(ray, t, closestSphereIndex)
 }
 
-// Calculate and return the background colour based on the ray
 function backgroundColour(ray)
 {
-        return new Vec3(0.3,0.5,0.9) // Blue
+        let white = new Vec3(1, 1, 1)
+        let blue = new Vec3(0.3, 0.5, 0.9)
+        t = 0.5*(ray.direction.y * 1.0)
+        return white.scale(1-t).add(blue.scale(t))
 }
 
-// Returns the colour the ray should have as a Vec3 with RGB values in [0,1]
 function rayColour(ray) 
 {
     let castResult = traceRay(ray)
     if(castResult.t < 0) return backgroundColour(ray)
-    return new Vec3(1,0,0) // Red
+
+    let albedo = spheres[castResult.sphereIndex].colour
+
+    let ambientStrength = 0.1
+    let ambient = albedo.scale(ambientStrength)
+
+    let diffuse = Math.max(castResult.normal.dot(negLightDirection), 0)
+
+    let reflectDir = lightDirection.minus(castResult.normal.scale(2 * lightDirection.dot(castResult.normal)))
+    let viewDir = camPosition.minus(castResult.position).normalised()
+    let shininess = 32
+    let specular = Math.pow(Math.max(reflectDir.dot(viewDir), 0), shininess)
+    let specularStrength = 0.5
+
+    let shadowFactor = inShadow(castResult.position) ? 0.0 : 1.0
+
+    let colour = ambient
+        .add(albedo.scale(diffuse * shadowFactor))
+        .add(new Vec3(1,1,1).scale(specular * specularStrength * shadowFactor))
+
+    return colour
 }
 
-// Sets a pixel at (x, y) in the canvas with an RGB Vec3
 function setPixel(x, y, colour)
 {
     var c = document.getElementById("canvas")
@@ -132,24 +179,64 @@ function setPixel(x, y, colour)
     ctx.fillRect(x, c.height - y, 1, 1)
 }
 
+function gammaCorrect(colour)
+{
+    let gamma = 2.2
+    let power = 1.0 / gamma
+    return new Vec3(
+        Math.pow(colour.x, power),
+        Math.pow(colour.y, power),
+        Math.pow(colour.z, power)
+    )
+}
+
+function inShadow(position)
+{
+    let shadowRayOrigin = position.add(negLightDirection.scale(0.001))
+    let shadowRay = new Ray(shadowRayOrigin, negLightDirection)
+
+    for (let i = 0; i < spheres.length; i++)
+    {
+        let t = spheres[i].rayIntersects(shadowRay)
+        if (t > 0) return true
+    }
+    return false
+}
+
 const spheres = new Array(
-    new Sphere(new Vec3(0,0,-1), 0.3, new Vec3(1,0,0)),       // Red sphere
-    new Sphere(new Vec3(0,0.2,-0.8), 0.15, new Vec3(0,0,1)),  // Blue sphere
-    new Sphere(new Vec3(0,-100.5,-1), 100, new Vec3(0,1,0))   // Big green sphere
+    new Sphere(new Vec3(0,0,-1), 0.3, new Vec3(1,0,0)),
+    new Sphere(new Vec3(0,0.2,-0.8), 0.15, new Vec3(0,0,1)),
+    new Sphere(new Vec3(0,-100.5,-1), 100, new Vec3(0,1,0))
     );
 
 
-// Main code
 let imageWidth = document.getElementById("canvas").width
 let imageHeight = document.getElementById("canvas").height
-let aspectRatio = document.getElementById("canvas").height / document.getElementById("canvas").width
+let aspectRatio = imageHeight / imageWidth
+
+let viewportWidth = 2
+let viewportHeight = viewportWidth * aspectRatio
+let focalLength = 1.0
+
+let camPosition = new Vec3(0, 0, 0)
+let horizontal = new Vec3(viewportWidth, 0, 0)
+let vertical = new Vec3(0, viewportHeight, 0)
+let lowerLeftCorner = camPosition.minus(horizontal.scale(0.5)).minus(vertical.scale(0.5)).minus(new Vec3(0, 0, focalLength))
 
 let colour = new Vec3(0,0,0)
+
+let lightDirection = new Vec3(-1.1, -1.3, -1.5).normalised();
+let negLightDirection = new Vec3(-lightDirection.x, -lightDirection.y, -lightDirection.z)
 
 for (let i = 0; i < imageWidth; i++)
 {
     for (let j = 0; j <= imageHeight; j++)
     {
+        let u = i / (imageWidth-1)
+        let v = j / (imageHeight-1)
+        
+        let ray = new Ray(camPosition, lowerLeftCorner.add(horizontal.scale(u)).add(vertical.scale(v)).minus(camPosition))
+        colour = gammaCorrect(rayColour(ray)).scale(255)
         setPixel(i,j,colour)
     }
 }
